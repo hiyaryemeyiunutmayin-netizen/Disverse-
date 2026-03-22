@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Disverse</title>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f8f8f8; }
+header { background:#4b7bec; color:white; padding:15px; text-align:center; font-size:1.5em; font-weight:bold; }
+#content { padding:20px; margin-bottom:70px; }
+nav { display:flex; justify-content:space-around; background:white; padding:10px; position:fixed; bottom:0; width:100%; box-shadow:0 -2px 5px rgba(0,0,0,0.1); }
+nav div { cursor:pointer; font-size:1.5em; text-align:center; flex:1; }
+.card { background:white; border-radius:10px; padding:10px; margin-bottom:15px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+video, img { width:100%; border-radius:10px; margin-top:10px; }
+input, select, textarea { width:100%; padding:10px; margin:5px 0; border-radius:5px; border:1px solid #ccc; }
+button { padding:10px 15px; background:#4b7bec; color:white; border:none; border-radius:5px; cursor:pointer; margin-top:5px; }
+.likes { display:flex; gap:10px; margin-top:5px; align-items:center; flex-wrap: wrap; }
+.subInfo { font-size:0.85em; color:#555; margin-top:3px; }
+</style>
+</head>
+<body>
+
+<header>Disverse</header>
+<div id="content"></div>
+
+<nav>
+  <div onclick="showPage('home')">🏠</div>
+  <div onclick="showPage('create')">➕</div>
+  <div onclick="showPage('videos')">🎥</div>
+  <div onclick="showPage('photos')">📷</div>
+  <div onclick="showPage('profile')">👤</div>
+</nav>
+
+<script>
+// Kullanıcı girişi
+let currentUser = prompt("Kullanıcı adınızı girin:");
+let userAge = parseInt(prompt("Yaşınızı girin:"),10);
+
+// Kullanıcı kayıt kontrolü
+let users = JSON.parse(localStorage.getItem('users') || '[]');
+if(!users.find(u=>u.username===currentUser)){
+  users.push({username: currentUser, subscribers: [], subscriptions: []});
+  localStorage.setItem('users', JSON.stringify(users));
+}
+
+// Gönderi kaydet
+function savePost(post){
+  let posts = JSON.parse(localStorage.getItem('posts') || '[]');
+  posts.push(post);
+  localStorage.setItem('posts', JSON.stringify(posts));
+}
+
+// Gönderileri yükle
+function loadPosts(filterType=null){
+  let posts = JSON.parse(localStorage.getItem('posts') || '[]');
+  if(filterType) posts = posts.filter(p=>p.type===filterType);
+  posts = posts.filter(p=>userAge>=p.ageRange[0] && userAge<=p.ageRange[1]);
+  return posts;
+}
+
+// Popülerlik sıralaması
+function sortByPopularity(posts){
+  return posts.sort((a,b)=>{
+    let aScore = (a.likes.up*2 + a.likes.mid - a.likes.down)+a.views;
+    let bScore = (b.likes.up*2 + b.likes.mid - b.likes.down)+b.views;
+    return bScore - aScore;
+  });
+}
+
+// Rozet / Yıldız fonksiyonu
+function getStar(subCount){
+  if(subCount >= 100000) return '🔴';
+  else if(subCount >= 10000) return '⭐⭐';
+  else if(subCount >= 1000) return '⭐';
+  else return '';
+}
+
+// Abone ol / Katıl
+function toggleSubscribe(targetUser){
+  let users = JSON.parse(localStorage.getItem('users'));
+  let me = users.find(u=>u.username===currentUser);
+  let target = users.find(u=>u.username===targetUser);
+  if(!me || !target) return;
+  if(me.subscriptions.includes(targetUser)){
+    me.subscriptions = me.subscriptions.filter(u=>u!==targetUser);
+    target.subscribers = target.subscribers.filter(u=>u!==currentUser);
+  }else{
+    me.subscriptions.push(targetUser);
+    target.subscribers.push(currentUser);
+  }
+  localStorage.setItem('users', JSON.stringify(users));
+  renderCurrentPage();
+}
+
+// Beğeni sistemi
+function like(index,type){
+  let posts = JSON.parse(localStorage.getItem('posts'));
+  posts[index].likes[type]++;
+  posts[index].views++;
+  localStorage.setItem('posts', JSON.stringify(posts));
+  renderCurrentPage();
+}
+
+// Yeni gönderi oluşturma
+function renderCreate(){
+  document.getElementById('content').innerHTML=`
+    <h2>Yeni Gönderi</h2>
+    <input type="text" id="country" placeholder="Ülke"/>
+    <input type="text" id="tags" placeholder="Etiket"/>
+    <textarea id="description" placeholder="Açıklama"></textarea>
+    <select id="ageRange">
+      <option value="0-6">0-6</option>
+      <option value="7-9">7-9</option>
+      <option value="10-15">10-15</option>
+      <option value="16-18">16-18</option>
+      <option value="19-25">19-25</option>
+    </select>
+    <input type="file" id="file"/>
+    <button onclick="createPost()">Paylaş</button>
+  `;
+}
+
+// Gönderiyi kaydet (Base64)
+function createPost(){
+  let file = document.getElementById('file').files[0];
+  if(!file) return alert('Dosya seçin');
+  let reader = new FileReader();
+  reader.onload = function(e){
+    const dataURL = e.target.result;
+    const ageVals = document.getElementById('ageRange').value.split('-').map(Number);
+    savePost({
+      username: currentUser,
+      country: document.getElementById('country').value,
+      tags: document.getElementById('tags').value,
+      description: document.getElementById('description').value,
+      ageRange: ageVals,
+      type: file.type.includes('video')?'video':'photo',
+      data: dataURL,
+      views:0,
+      likes:{up:0, mid:0, down:0}
+    });
+    showPage('home');
+  };
+  reader.readAsDataURL(file);
+}
+
+// Ortak render fonksiyonu
+function renderFeed(posts){
+  let users = JSON.parse(localStorage.getItem('users'));
+  let html='';
+  if(posts.length===0) html='<p>Gönderi yok.</p>';
+  posts.forEach((p,i)=>{
+    let author = users.find(u=>u.username===p.username);
+    let isSubscribed = author.subscribers.includes(currentUser);
+    html+=`<div class="card">
+      <strong>${p.username}</strong> (${p.country}) ${getStar(author.subscribers.length)}<br>
+      ${p.description}<br>
+      Tags: ${p.tags}<br>
+      ${p.type==='video'?`<video controls src="${p.data}"></video>`:`<img src="${p.data}"/>`}<br>
+      <button onclick="toggleSubscribe('${p.username}')">${isSubscribed?'Katıldı':'Abone'}</button>
+      <div class="subInfo">Abone sayısı: ${author.subscribers.length} ${getStar(author.subscribers.length)}</div>
+      <div class="likes">
+        ⬆️ <button onclick="like(${i},'up')">+</button>
+        ➖ <button onclick="like(${i},'mid')">0</button>
+        ⬇️ <button onclick="like(${i},'down')">-</button>
+        İzlenme: ${p.views}
+      </div>
+    </div>`;
+  });
+  document.getElementById('content').innerHTML=html;
+}
+
+// Home / Keşfet
+function renderDiscover(){
+  let posts = loadPosts();
+  let users = JSON.parse(localStorage.getItem('users'));
+  let me = users.find(u=>u.username===currentUser);
+  let subscribedPosts = posts.filter(p=>me.subscriptions.includes(p.username));
+  let otherPosts = posts.filter(p=>!me.subscriptions.includes(p.username));
+  subscribedPosts = sortByPopularity(subscribedPosts);
+  otherPosts = sortByPopularity(otherPosts);
+  renderFeed([...subscribedPosts,...otherPosts]);
+}
+
+// Video / Fotoğraf sayfaları
+function renderHome(filterType=null){
+  let posts = loadPosts(filterType);
+  posts = sortByPopularity(posts);
+  renderFeed(posts);
+}
+
+// Profil sayfası
+function renderProfile(){
+  let posts = loadPosts().filter(p=>p.username===currentUser);
+  posts = sortByPopularity(posts);
+  renderFeed(posts);
+}
+
+// Sayfa geçişi
+let currentPage='home';
+function showPage(page){
+  currentPage=page;
+  renderCurrentPage();
+}
+
+function renderCurrentPage(){
+  if(currentPage==='home') renderDiscover();
+  else if(currentPage==='create') renderCreate();
+  else if(currentPage==='videos') renderHome('video');
+  else if(currentPage==='photos') renderHome('photo');
+  else if(currentPage==='profile') renderProfile();
+}
+
+// Başlangıç
+showPage('home');
+</script>
+</body>
+</html>
